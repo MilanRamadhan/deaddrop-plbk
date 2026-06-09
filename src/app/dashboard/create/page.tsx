@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, Copy, Check, RotateCcw, Send, Navigation } from "lucide-react";
+import { MapPin, Copy, Check, RotateCcw, Send, Navigation, AlertCircle } from "lucide-react";
 
 interface FormState {
   recipient: string;
@@ -26,9 +26,9 @@ const defaultForm: FormState = {
 export default function CreatePage() {
   const [form, setForm] = useState<FormState>(defaultForm);
   const [locating, setLocating] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [dropId, setDropId] = useState("");
-  const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -48,19 +48,39 @@ export default function CreatePage() {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const id = crypto.randomUUID();
-    setDropId(id);
-    setSubmitted(true);
-    setCopied(false);
-    setLinkCopied(false);
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientName: form.recipient,
+          content: form.message,
+          latitude: parseFloat(form.latitude),
+          longitude: parseFloat(form.longitude),
+          radius: parseFloat(form.radius),
+          expiresAt: form.expiresAt,
+          selfDestruct: form.selfDestruct,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Gagal membuat pesan");
+      setDropId(data.message._id);
+      setLinkCopied(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleReset() {
     setForm(defaultForm);
-    setSubmitted(false);
     setDropId("");
+    setError("");
   }
 
   const dropLink =
@@ -73,10 +93,10 @@ export default function CreatePage() {
   }
 
   const hasCoords = form.latitude !== "" && form.longitude !== "";
+  const submitted = !!dropId;
 
   return (
     <div>
-      {/* Page header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-black">Buat Pesan Baru</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -93,13 +113,14 @@ export default function CreatePage() {
                 Isi Pesan
               </h2>
 
-              {/* Recipient */}
               <div className="mb-4">
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Nama Penerima
                 </label>
                 <input
                   type="text"
+                  required
+                  minLength={2}
                   value={form.recipient}
                   onChange={(e) => setField("recipient", e.target.value)}
                   placeholder="Untuk siapa pesan ini?"
@@ -107,11 +128,11 @@ export default function CreatePage() {
                 />
               </div>
 
-              {/* Message */}
               <div className="mb-4">
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">Isi Pesan</label>
                 <textarea
                   rows={6}
+                  required
                   value={form.message}
                   onChange={(e) => setField("message", e.target.value)}
                   placeholder="Tulis pesan rahasiamu..."
@@ -119,20 +140,19 @@ export default function CreatePage() {
                 />
               </div>
 
-              {/* Expiry */}
               <div className="mb-5">
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Waktu Kadaluarsa
                 </label>
                 <input
                   type="datetime-local"
+                  required
                   value={form.expiresAt}
                   onChange={(e) => setField("expiresAt", e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 />
               </div>
 
-              {/* Self Destruct toggle */}
               <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-700">Self Destruct</p>
@@ -164,15 +184,13 @@ export default function CreatePage() {
                 Kunci Lokasi GPS
               </h2>
 
-              {/* Lat / Lng */}
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                    Latitude
-                  </label>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Latitude</label>
                   <input
                     type="number"
                     step="0.000001"
+                    required
                     value={form.latitude}
                     onChange={(e) => setField("latitude", e.target.value)}
                     placeholder="-6.200000"
@@ -180,12 +198,11 @@ export default function CreatePage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                    Longitude
-                  </label>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Longitude</label>
                   <input
                     type="number"
                     step="0.000001"
+                    required
                     value={form.longitude}
                     onChange={(e) => setField("longitude", e.target.value)}
                     placeholder="106.816666"
@@ -194,21 +211,21 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              {/* Radius */}
               <div className="mb-4">
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                  Radius (meter)
+                  Radius (meter) — min 50, max 1000
                 </label>
                 <input
                   type="number"
-                  min="1"
+                  min="50"
+                  max="1000"
+                  required
                   value={form.radius}
                   onChange={(e) => setField("radius", e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 />
               </div>
 
-              {/* Geolocate button */}
               <button
                 type="button"
                 onClick={handleGeolocate}
@@ -219,7 +236,6 @@ export default function CreatePage() {
                 {locating ? "Mendapatkan lokasi..." : "Gunakan Lokasi Saya Sekarang"}
               </button>
 
-              {/* Coords preview */}
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <div className="mb-2 flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-red-500" />
@@ -252,14 +268,23 @@ export default function CreatePage() {
           </div>
         </div>
 
-        {/* Submit button */}
+        {/* Error */}
+        {error && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-500" />
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Submit */}
         <div className="mt-8">
           <button
             type="submit"
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-3.5 font-medium text-white transition hover:bg-red-700 active:scale-[0.99]"
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-3.5 font-medium text-white transition hover:bg-red-700 disabled:opacity-60 active:scale-[0.99]"
           >
             <Send className="h-4 w-4" />
-            Kirim Pesan
+            {submitting ? "Mengirim..." : "Kirim Pesan"}
           </button>
         </div>
       </form>
@@ -274,11 +299,8 @@ export default function CreatePage() {
             <h3 className="font-semibold text-gray-800">Pesan berhasil dibuat!</h3>
           </div>
 
-          <p className="mb-2 text-sm text-gray-500">
-            Bagikan link berikut ke penerima:
-          </p>
+          <p className="mb-2 text-sm text-gray-500">Bagikan link berikut ke penerima:</p>
 
-          {/* Link box */}
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
             <code className="flex-1 break-all font-mono text-xs text-gray-700">{dropLink}</code>
             <button

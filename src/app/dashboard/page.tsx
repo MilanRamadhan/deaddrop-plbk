@@ -1,69 +1,32 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { MessageSquare, Unlock, Clock, Flame, Inbox, Copy } from "lucide-react";
+import { MessageSquare, Unlock, Clock, Flame, Inbox, Copy, Check } from "lucide-react";
 
 type MessageStatus = "pending" | "opened" | "expired" | "destroyed";
 
 interface Message {
-  id: string;
-  recipient: string;
+  _id: string;
+  recipientName: string;
   status: MessageStatus;
-  lat: number;
-  lng: number;
+  latitude: number;
+  longitude: number;
   expiresAt: string;
 }
 
-const DUMMY_MESSAGES: Message[] = [
-  {
-    id: "a1b2c3d4-0000-0000-0000-111111111111",
-    recipient: "Budi Santoso",
-    status: "pending",
-    lat: -6.2088,
-    lng: 106.8456,
-    expiresAt: "2026-06-15T18:00:00",
-  },
-  {
-    id: "e5f6g7h8-0000-0000-0000-222222222222",
-    recipient: "Siti Rahayu",
-    status: "opened",
-    lat: -7.7956,
-    lng: 110.3695,
-    expiresAt: "2026-06-12T12:00:00",
-  },
-  {
-    id: "i9j0k1l2-0000-0000-0000-333333333333",
-    recipient: "Agus Wijaya",
-    status: "expired",
-    lat: -8.6705,
-    lng: 115.2126,
-    expiresAt: "2026-06-10T09:00:00",
-  },
-];
+interface Stats {
+  total: number;
+  opened: number;
+  pending: number;
+  destroyed: number;
+}
 
-const USE_DUMMY = true; // flip ke false saat API sudah siap
-const messages = USE_DUMMY ? DUMMY_MESSAGES : [];
-
-const statusConfig: Record<
-  MessageStatus,
-  { label: string; className: string }
-> = {
-  pending: {
-    label: "Pending",
-    className: "bg-yellow-50 text-yellow-700 border border-yellow-200",
-  },
-  opened: {
-    label: "Opened",
-    className: "bg-green-50 text-green-700 border border-green-200",
-  },
-  expired: {
-    label: "Expired",
-    className: "bg-gray-100 text-gray-500 border border-gray-200",
-  },
-  destroyed: {
-    label: "Destroyed",
-    className: "bg-red-50 text-red-600 border border-red-200",
-  },
+const STATUS_CONFIG: Record<MessageStatus, { label: string; className: string }> = {
+  pending: { label: "Pending", className: "bg-yellow-50 text-yellow-700 border border-yellow-200" },
+  opened: { label: "Opened", className: "bg-green-50 text-green-700 border border-green-200" },
+  expired: { label: "Expired", className: "bg-gray-100 text-gray-500 border border-gray-200" },
+  destroyed: { label: "Destroyed", className: "bg-red-50 text-red-600 border border-red-200" },
 };
 
 function formatDate(iso: string) {
@@ -77,9 +40,33 @@ function formatDate(iso: string) {
 }
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [statsRes, msgsRes] = await Promise.all([
+          fetch("/api/dashboard/stats"),
+          fetch("/api/messages"),
+        ]);
+        const statsData = await statsRes.json();
+        const msgsData = await msgsRes.json();
+        if (statsData.success) setStats(statsData.stats);
+        if (msgsData.success) setMessages(msgsData.messages.slice(0, 5)); // show 5 most recent
+      } catch {
+        setError("Gagal memuat data dashboard.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
   return (
     <div>
-      {/* Page header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-black">Dashboard</h1>
         <p className="mt-1 text-sm text-gray-500">Overview of your secure messages.</p>
@@ -87,15 +74,30 @@ export default function DashboardPage() {
 
       {/* ── STAT CARDS ── */}
       <div className="mb-10 grid gap-4 md:grid-cols-4">
-        <StatCard title="Total" value="0" icon={<MessageSquare className="h-5 w-5" />} />
-        <StatCard title="Opened" value="0" icon={<Unlock className="h-5 w-5" />} />
-        <StatCard title="Pending" value="0" icon={<Clock className="h-5 w-5" />} />
-        <StatCard title="Expired" value="0" icon={<Flame className="h-5 w-5" />} />
+        <StatCard
+          title="Total"
+          value={loading ? "—" : String(stats?.total ?? 0)}
+          icon={<MessageSquare className="h-5 w-5" />}
+        />
+        <StatCard
+          title="Opened"
+          value={loading ? "—" : String(stats?.opened ?? 0)}
+          icon={<Unlock className="h-5 w-5" />}
+        />
+        <StatCard
+          title="Pending"
+          value={loading ? "—" : String(stats?.pending ?? 0)}
+          icon={<Clock className="h-5 w-5" />}
+        />
+        <StatCard
+          title="Destroyed"
+          value={loading ? "—" : String(stats?.destroyed ?? 0)}
+          icon={<Flame className="h-5 w-5" />}
+        />
       </div>
 
       {/* ── RECENT MESSAGES ── */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-        {/* Table header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 className="font-semibold text-black">Pesan Terbaru</h2>
           <Link
@@ -106,14 +108,21 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {messages.length === 0 ? (
-          /* ── EMPTY STATE ── */
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-red-600" />
+          </div>
+        ) : error ? (
+          <div className="py-12 text-center text-sm text-red-500">{error}</div>
+        ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100">
               <Inbox className="h-7 w-7 text-gray-400" />
             </div>
             <p className="mb-1 font-medium text-gray-700">Belum ada pesan</p>
-            <p className="mb-6 text-sm text-gray-400">Mulai dengan membuat pesan terenkripsi pertamamu.</p>
+            <p className="mb-6 text-sm text-gray-400">
+              Mulai dengan membuat pesan terenkripsi pertamamu.
+            </p>
             <Link
               href="/dashboard/create"
               className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-red-700"
@@ -122,7 +131,6 @@ export default function DashboardPage() {
             </Link>
           </div>
         ) : (
-          /* ── TABLE ── */
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -136,7 +144,7 @@ export default function DashboardPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {messages.map((msg) => (
-                  <TableRow key={msg.id} msg={msg} />
+                  <TableRow key={msg._id} msg={msg} />
                 ))}
               </tbody>
             </table>
@@ -170,26 +178,26 @@ function StatCard({
 }
 
 function TableRow({ msg }: { msg: Message }) {
-  const status = statusConfig[msg.status];
+  const status = STATUS_CONFIG[msg.status] ?? STATUS_CONFIG.pending;
+  const [copied, setCopied] = useState(false);
 
   async function copyLink() {
-    const link = `${window.location.origin}/drop/${msg.id}`;
-    await navigator.clipboard.writeText(link);
+    await navigator.clipboard.writeText(`${window.location.origin}/drop/${msg._id}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (
     <tr className="transition hover:bg-gray-50">
-      <td className="px-6 py-4 font-medium text-gray-800">{msg.recipient}</td>
+      <td className="px-6 py-4 font-medium text-gray-800">{msg.recipientName}</td>
       <td className="px-6 py-4">
-        <span
-          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${status.className}`}
-        >
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${status.className}`}>
           {status.label}
         </span>
       </td>
       <td className="px-6 py-4">
         <code className="font-mono text-xs text-gray-500">
-          {msg.lat.toFixed(4)}, {msg.lng.toFixed(4)}
+          {msg.latitude.toFixed(4)}, {msg.longitude.toFixed(4)}
         </code>
       </td>
       <td className="px-6 py-4 text-gray-500">{formatDate(msg.expiresAt)}</td>
@@ -198,7 +206,7 @@ function TableRow({ msg }: { msg: Message }) {
           onClick={copyLink}
           className="flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-red-300 hover:text-red-600"
         >
-          <Copy className="h-3 w-3" />
+          {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
           Salin Link
         </button>
       </td>

@@ -9,14 +9,32 @@ type Tab = "create" | "existing";
 export default function AuthPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("create");
-  const [generatedToken, setGeneratedToken] = useState<string>("");
-  const [copied, setCopied] = useState(false);
-  const [inputToken, setInputToken] = useState("");
 
-  function handleGenerate() {
-    const token = crypto.randomUUID();
-    setGeneratedToken(token);
-    setCopied(false);
+  // Tab A — generate
+  const [generatedToken, setGeneratedToken] = useState<string>("");
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+
+  // Tab B — login
+  const [inputToken, setInputToken] = useState("");
+  const [logging, setLogging] = useState(false);
+  const [loginError, setLoginError] = useState("");
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenerateError("");
+    try {
+      const res = await fetch("/api/auth/identity", { method: "GET" });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Gagal generate token");
+      setGeneratedToken(data.user.identityToken);
+      setCopied(false);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Terjadi kesalahan");
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function handleCopy() {
@@ -26,22 +44,35 @@ export default function AuthPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!inputToken.trim()) return;
-    router.push("/dashboard");
+    setLogging(true);
+    setLoginError("");
+    try {
+      const res = await fetch("/api/auth/identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: inputToken.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Token tidak valid");
+      router.push("/dashboard");
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "Terjadi kesalahan");
+    } finally {
+      setLogging(false);
+    }
   }
 
   return (
     <div className="min-h-screen bg-white px-4">
-      {/* Back to home */}
       <div className="mx-auto max-w-md pt-8">
         <a href="/" className="text-sm font-medium text-gray-400 transition hover:text-black">
           ← DEADDROP
         </a>
       </div>
 
-      {/* Card */}
       <div className="mx-auto mt-10 max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -83,14 +114,18 @@ export default function AuthPage() {
           <div className="space-y-4">
             <button
               onClick={handleGenerate}
-              className="w-full rounded-lg bg-red-600 py-3 font-medium text-white transition hover:bg-red-700 active:scale-[0.98]"
+              disabled={generating}
+              className="w-full rounded-lg bg-red-600 py-3 font-medium text-white transition hover:bg-red-700 disabled:opacity-60 active:scale-[0.98]"
             >
-              Generate Token
+              {generating ? "Membuat token..." : "Generate Token"}
             </button>
+
+            {generateError && (
+              <p className="text-xs font-medium text-red-600">{generateError}</p>
+            )}
 
             {generatedToken && (
               <>
-                {/* Token display */}
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                   <code className="flex-1 break-all font-mono text-xs text-gray-700">
                     {generatedToken}
@@ -108,12 +143,10 @@ export default function AuthPage() {
                   </button>
                 </div>
 
-                {/* Warning */}
                 <p className="text-xs font-medium text-red-600">
                   ⚠ Simpan token ini. Tidak bisa dipulihkan.
                 </p>
 
-                {/* Continue button */}
                 <button
                   onClick={() => router.push("/dashboard")}
                   className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-3 font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
@@ -130,9 +163,7 @@ export default function AuthPage() {
         {activeTab === "existing" && (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                Token kamu
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">Token kamu</label>
               <input
                 type="text"
                 value={inputToken}
@@ -142,18 +173,21 @@ export default function AuthPage() {
               />
             </div>
 
+            {loginError && (
+              <p className="text-xs font-medium text-red-600">{loginError}</p>
+            )}
+
             <button
               type="submit"
-              disabled={!inputToken.trim()}
+              disabled={!inputToken.trim() || logging}
               className="w-full rounded-lg bg-red-600 py-3 font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
             >
-              Masuk
+              {logging ? "Masuk..." : "Masuk"}
             </button>
           </form>
         )}
       </div>
 
-      {/* Bottom note */}
       <p className="mx-auto mt-6 max-w-md text-center text-xs text-gray-400">
         Token adalah satu-satunya identitasmu di DeadDrop.
       </p>

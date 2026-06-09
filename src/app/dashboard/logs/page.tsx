@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Plus,
   Unlock,
@@ -9,142 +9,118 @@ import {
   MapPin,
   MapPinOff,
   ClipboardList,
+  ShieldCheck,
 } from "lucide-react";
 
+// Mapping dari action string backend → UI config
 type EventType =
-  | "message.created"
-  | "message.opened"
-  | "message.expired"
-  | "message.destroyed"
-  | "location.verified"
-  | "location.failed";
-
-type EventStatus = "success" | "failed";
+  | "MESSAGE_CREATED"
+  | "MESSAGE_OPENED"
+  | "MESSAGE_EXPIRED"
+  | "MESSAGE_DESTROYED"
+  | "LOCATION_VERIFIED"
+  | "LOCATION_FAILED"
+  | "UNKNOWN";
 
 interface LogEntry {
-  id: string;
-  eventType: EventType;
-  status: EventStatus;
+  _id: string;
   messageId: string;
-  detail: string;
-  timestamp: string;
+  actorId: string;
+  action: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 }
-
-const DUMMY_LOGS: LogEntry[] = [
-  {
-    id: "log-001",
-    eventType: "location.failed",
-    status: "failed",
-    messageId: "a1b2c3d4-0000-0000-0000-111111111111",
-    detail: "Verifikasi lokasi gagal. Jarak terlalu jauh: 4.2km dari titik drop.",
-    timestamp: "2026-06-10T07:45:12",
-  },
-  {
-    id: "log-002",
-    eventType: "location.verified",
-    status: "success",
-    messageId: "e5f6g7h8-0000-0000-0000-222222222222",
-    detail: "Pesan dibuka dari koordinat -7.7956, 110.3695. Jarak: 23m dari titik drop.",
-    timestamp: "2026-06-10T07:30:05",
-  },
-  {
-    id: "log-003",
-    eventType: "message.opened",
-    status: "success",
-    messageId: "e5f6g7h8-0000-0000-0000-222222222222",
-    detail: "Pesan berhasil dibuka oleh penerima 'Siti Rahayu'. Self-destruct diaktifkan.",
-    timestamp: "2026-06-10T07:30:06",
-  },
-  {
-    id: "log-004",
-    eventType: "message.destroyed",
-    status: "success",
-    messageId: "m3n4o5p6-0000-0000-0000-444444444444",
-    detail: "Pesan dihapus permanen setelah dibuka. Tidak dapat dipulihkan.",
-    timestamp: "2026-06-09T21:02:33",
-  },
-  {
-    id: "log-005",
-    eventType: "message.expired",
-    status: "success",
-    messageId: "i9j0k1l2-0000-0000-0000-333333333333",
-    detail: "Pesan untuk 'Agus Wijaya' kadaluarsa. Tidak bisa dibuka lagi.",
-    timestamp: "2026-06-09T09:00:01",
-  },
-  {
-    id: "log-006",
-    eventType: "message.created",
-    status: "success",
-    messageId: "q7r8s9t0-0000-0000-0000-555555555555",
-    detail: "Pesan berhasil dibuat untuk 'Rudi Hermawan'. Kadaluarsa: 20 Jun 2026.",
-    timestamp: "2026-06-08T11:00:44",
-  },
-  {
-    id: "log-007",
-    eventType: "location.failed",
-    status: "failed",
-    messageId: "q7r8s9t0-0000-0000-0000-555555555555",
-    detail: "Akses GPS ditolak oleh pengguna. Verifikasi tidak dapat dilanjutkan.",
-    timestamp: "2026-06-08T14:22:10",
-  },
-  {
-    id: "log-008",
-    eventType: "message.created",
-    status: "success",
-    messageId: "u1v2w3x4-0000-0000-0000-666666666666",
-    detail: "Pesan berhasil dibuat untuk 'Maya Putri'. Kadaluarsa: 25 Jun 2026.",
-    timestamp: "2026-06-07T16:45:00",
-  },
-];
-
-const TODAY = new Date().toDateString();
 
 const EVENT_CONFIG: Record<
   EventType,
-  {
-    label: string;
-    badgeClass: string;
-    iconClass: string;
-    Icon: React.ElementType;
-  }
+  { label: string; badgeClass: string; iconClass: string; Icon: React.ElementType }
 > = {
-  "message.created": {
+  MESSAGE_CREATED: {
     label: "message.created",
     badgeClass: "bg-blue-100 text-blue-700 border-blue-200",
     iconClass: "bg-green-50 text-green-600",
     Icon: Plus,
   },
-  "message.opened": {
+  MESSAGE_OPENED: {
     label: "message.opened",
     badgeClass: "bg-green-100 text-green-700 border-green-200",
     iconClass: "bg-green-50 text-green-600",
     Icon: Unlock,
   },
-  "message.expired": {
+  MESSAGE_EXPIRED: {
     label: "message.expired",
     badgeClass: "bg-gray-100 text-gray-600 border-gray-200",
     iconClass: "bg-gray-100 text-gray-400",
     Icon: Clock,
   },
-  "message.destroyed": {
+  MESSAGE_DESTROYED: {
     label: "message.destroyed",
     badgeClass: "bg-red-100 text-red-600 border-red-200",
     iconClass: "bg-red-50 text-red-500",
     Icon: Flame,
   },
-  "location.verified": {
+  LOCATION_VERIFIED: {
     label: "location.verified",
     badgeClass: "bg-emerald-100 text-emerald-700 border-emerald-200",
     iconClass: "bg-emerald-50 text-emerald-600",
     Icon: MapPin,
   },
-  "location.failed": {
+  LOCATION_FAILED: {
     label: "location.failed",
     badgeClass: "bg-orange-100 text-orange-700 border-orange-200",
     iconClass: "bg-orange-50 text-orange-500",
     Icon: MapPinOff,
   },
+  UNKNOWN: {
+    label: "event",
+    badgeClass: "bg-gray-100 text-gray-500 border-gray-200",
+    iconClass: "bg-gray-100 text-gray-400",
+    Icon: ShieldCheck,
+  },
 };
+
+function normalizeAction(action: string): EventType {
+  const map: Record<string, EventType> = {
+    MESSAGE_CREATED: "MESSAGE_CREATED",
+    MESSAGE_OPENED: "MESSAGE_OPENED",
+    MESSAGE_EXPIRED: "MESSAGE_EXPIRED",
+    MESSAGE_DESTROYED: "MESSAGE_DESTROYED",
+    LOCATION_VERIFIED: "LOCATION_VERIFIED",
+    LOCATION_FAILED: "LOCATION_FAILED",
+  };
+  return map[action.toUpperCase()] ?? "UNKNOWN";
+}
+
+function buildDetail(log: LogEntry): string {
+  const action = normalizeAction(log.action);
+  const meta = log.metadata ?? {};
+  const msgId = shortId(String(log.messageId));
+
+  switch (action) {
+    case "MESSAGE_OPENED":
+      return `Pesan ${msgId} berhasil dibuka. Jarak: ${meta.distance != null ? formatDist(Number(meta.distance)) : "—"}.`;
+    case "MESSAGE_CREATED":
+      return `Pesan baru dibuat.`;
+    case "MESSAGE_DESTROYED":
+      return `Pesan ${msgId} dihapus permanen (self-destruct).`;
+    case "MESSAGE_EXPIRED":
+      return `Pesan ${msgId} kadaluarsa dan tidak bisa dibuka lagi.`;
+    case "LOCATION_VERIFIED":
+      return `Verifikasi lokasi berhasil. Jarak: ${meta.distance != null ? formatDist(Number(meta.distance)) : "—"}.`;
+    case "LOCATION_FAILED":
+      return `Verifikasi lokasi gagal. Jarak terlalu jauh: ${meta.distance != null ? formatDist(Number(meta.distance)) : "—"}.`;
+    default:
+      return `Event: ${log.action}`;
+  }
+}
+
+function formatDist(meters: number): string {
+  return meters < 1000 ? `${Math.round(meters)}m` : `${(meters / 1000).toFixed(2)}km`;
+}
+
+function shortId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) + "…" : id;
+}
 
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("id-ID", {
@@ -157,27 +133,47 @@ function formatDateTime(iso: string) {
   });
 }
 
-function shortId(id: string) {
-  return id.split("-")[0] + "…";
-}
-
-const totalEvents = DUMMY_LOGS.length;
-const todayEvents = DUMMY_LOGS.filter(
-  (l) => new Date(l.timestamp).toDateString() === TODAY
-).length;
-const failedEvents = DUMMY_LOGS.filter((l) => l.status === "failed").length;
+const TODAY = new Date().toDateString();
 
 export default function LogsPage() {
-  const [filterEvent, setFilterEvent] = useState<"all" | EventType>("all");
-  const [filterStatus, setFilterStatus] = useState<"all" | EventStatus>("all");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
+  const [filterAction, setFilterAction] = useState<"all" | EventType>("all");
   const [searchId, setSearchId] = useState("");
 
-  const filtered = DUMMY_LOGS.filter((log) => {
-    const matchEvent = filterEvent === "all" || log.eventType === filterEvent;
-    const matchStatus = filterStatus === "all" || log.status === filterStatus;
-    const matchId = log.messageId.toLowerCase().includes(searchId.toLowerCase());
-    return matchEvent && matchStatus && matchId;
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/audit");
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "Gagal memuat audit log");
+        setLogs(data.logs);
+      } catch (err) {
+        setFetchError(err instanceof Error ? err.message : "Terjadi kesalahan");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const filtered = logs.filter((log) => {
+    const matchAction =
+      filterAction === "all" || normalizeAction(log.action) === filterAction;
+    const matchId = String(log.messageId)
+      .toLowerCase()
+      .includes(searchId.toLowerCase());
+    return matchAction && matchId;
   });
+
+  const totalEvents = logs.length;
+  const todayEvents = logs.filter(
+    (l) => new Date(l.createdAt).toDateString() === TODAY,
+  ).length;
+  const failedEvents = logs.filter((l) =>
+    ["LOCATION_FAILED"].includes(l.action.toUpperCase()),
+  ).length;
 
   return (
     <div>
@@ -194,35 +190,25 @@ export default function LogsPage() {
 
       {/* STATS ROW */}
       <div className="mb-6 grid grid-cols-3 gap-4">
-        <StatMini label="Total Events" value={totalEvents} />
-        <StatMini label="Today's Events" value={todayEvents} />
-        <StatMini label="Failed Events" value={failedEvents} accent />
+        <StatMini label="Total Events" value={loading ? "—" : totalEvents} />
+        <StatMini label="Today's Events" value={loading ? "—" : todayEvents} />
+        <StatMini label="Failed Events" value={loading ? "—" : failedEvents} accent />
       </div>
 
       {/* FILTER BAR */}
       <div className="mb-5 flex flex-wrap gap-3">
         <select
-          value={filterEvent}
-          onChange={(e) => setFilterEvent(e.target.value as "all" | EventType)}
+          value={filterAction}
+          onChange={(e) => setFilterAction(e.target.value as "all" | EventType)}
           className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
         >
           <option value="all">Semua Tipe Event</option>
-          <option value="message.created">message.created</option>
-          <option value="message.opened">message.opened</option>
-          <option value="message.expired">message.expired</option>
-          <option value="message.destroyed">message.destroyed</option>
-          <option value="location.verified">location.verified</option>
-          <option value="location.failed">location.failed</option>
-        </select>
-
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as "all" | EventStatus)}
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-        >
-          <option value="all">Semua Status</option>
-          <option value="success">Success</option>
-          <option value="failed">Failed</option>
+          <option value="MESSAGE_CREATED">message.created</option>
+          <option value="MESSAGE_OPENED">message.opened</option>
+          <option value="MESSAGE_EXPIRED">message.expired</option>
+          <option value="MESSAGE_DESTROYED">message.destroyed</option>
+          <option value="LOCATION_VERIFIED">location.verified</option>
+          <option value="LOCATION_FAILED">location.failed</option>
         </select>
 
         <input
@@ -236,64 +222,56 @@ export default function LogsPage() {
 
       {/* LOG LIST */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-red-600" />
+          </div>
+        ) : fetchError ? (
+          <div className="py-16 text-center text-sm text-red-500">{fetchError}</div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100">
               <ClipboardList className="h-7 w-7 text-gray-400" />
             </div>
             <p className="font-medium text-gray-700">Belum ada aktivitas tercatat</p>
-            <p className="mt-1 text-sm text-gray-400">Coba ubah filter atau kata kunci pencarian.</p>
+            <p className="mt-1 text-sm text-gray-400">
+              Log akan muncul saat ada pesan yang dibuka atau gagal diverifikasi.
+            </p>
           </div>
         ) : (
           <ul className="divide-y divide-gray-100">
             {filtered.map((log) => {
-              const cfg = EVENT_CONFIG[log.eventType];
+              const eventType = normalizeAction(log.action);
+              const cfg = EVENT_CONFIG[eventType];
               const IconComp = cfg.Icon;
               return (
                 <li
-                  key={log.id}
+                  key={log._id}
                   className="flex items-start gap-4 px-5 py-4 transition hover:bg-gray-50"
                 >
-                  {/* Icon */}
                   <div
                     className={`mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${cfg.iconClass}`}
                   >
                     <IconComp className="h-4 w-4" strokeWidth={2} />
                   </div>
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      {/* Event badge */}
                       <span
                         className={`inline-flex rounded-full border px-2.5 py-0.5 font-mono text-xs font-medium ${cfg.badgeClass}`}
                       >
                         {cfg.label}
                       </span>
-
-                      {/* Message ID */}
                       <code
                         className="font-mono text-xs text-gray-400"
-                        title={log.messageId}
+                        title={String(log.messageId)}
                       >
-                        {shortId(log.messageId)}
+                        {shortId(String(log.messageId))}
                       </code>
-
-                      {/* Status dot */}
-                      <span
-                        className={`ml-auto flex-shrink-0 text-xs font-medium ${
-                          log.status === "failed" ? "text-red-500" : "text-green-600"
-                        }`}
-                      >
-                        {log.status === "failed" ? "● failed" : "● success"}
-                      </span>
                     </div>
 
-                    {/* Detail */}
-                    <p className="mt-1 text-sm text-gray-500">{log.detail}</p>
-
-                    {/* Timestamp */}
-                    <p className="mt-1 text-xs text-gray-400">{formatDateTime(log.timestamp)}</p>
+                    <p className="mt-1 text-sm text-gray-500">{buildDetail(log)}</p>
+                    <p className="mt-1 text-xs text-gray-400">{formatDateTime(log.createdAt)}</p>
                   </div>
                 </li>
               );
@@ -311,7 +289,7 @@ function StatMini({
   accent = false,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   accent?: boolean;
 }) {
   return (

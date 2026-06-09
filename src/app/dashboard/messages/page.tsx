@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, SearchX } from "lucide-react";
 import {
@@ -14,92 +14,17 @@ import {
 type MessageStatus = "pending" | "opened" | "expired" | "destroyed";
 
 interface Message {
-  id: string;
-  recipient: string;
-  message: string;
+  _id: string;
+  recipientName: string;
+  cipherText: string | null;
   status: MessageStatus;
-  lat: number;
-  lng: number;
-  radiusMeters: number;
+  latitude: number;
+  longitude: number;
+  radius: number;
   selfDestruct: boolean;
   createdAt: string;
   expiresAt: string;
 }
-
-const DUMMY_MESSAGES: Message[] = [
-  {
-    id: "a1b2c3d4-0000-0000-0000-111111111111",
-    recipient: "Budi Santoso",
-    message: "Ambil dokumennya di laci meja nomor 3, kodenya 4791.",
-    status: "pending",
-    lat: -6.2088,
-    lng: 106.8456,
-    radiusMeters: 100,
-    selfDestruct: true,
-    createdAt: "2026-06-01T10:00:00",
-    expiresAt: "2026-06-15T18:00:00",
-  },
-  {
-    id: "e5f6g7h8-0000-0000-0000-222222222222",
-    recipient: "Siti Rahayu",
-    message: "Password server ada di buku merah di atas lemari.",
-    status: "opened",
-    lat: -7.7956,
-    lng: 110.3695,
-    radiusMeters: 200,
-    selfDestruct: false,
-    createdAt: "2026-05-28T08:30:00",
-    expiresAt: "2026-06-12T12:00:00",
-  },
-  {
-    id: "i9j0k1l2-0000-0000-0000-333333333333",
-    recipient: "Agus Wijaya",
-    message: "Kunci brankas ada di balik lukisan di ruang tamu.",
-    status: "expired",
-    lat: -8.6705,
-    lng: 115.2126,
-    radiusMeters: 50,
-    selfDestruct: true,
-    createdAt: "2026-05-20T14:00:00",
-    expiresAt: "2026-06-01T09:00:00",
-  },
-  {
-    id: "m3n4o5p6-0000-0000-0000-444444444444",
-    recipient: "Dewi Lestari",
-    message: "Temui orang itu di taman, jam 3 sore. Kenali dari topi merahnya.",
-    status: "destroyed",
-    lat: -6.9175,
-    lng: 107.6191,
-    radiusMeters: 300,
-    selfDestruct: true,
-    createdAt: "2026-05-15T09:00:00",
-    expiresAt: "2026-05-15T21:00:00",
-  },
-  {
-    id: "q7r8s9t0-0000-0000-0000-555555555555",
-    recipient: "Rudi Hermawan",
-    message: "File backup ada di harddisk merah, folder PRIVATE/2026.",
-    status: "pending",
-    lat: -3.3194,
-    lng: 114.5907,
-    radiusMeters: 150,
-    selfDestruct: false,
-    createdAt: "2026-06-05T11:00:00",
-    expiresAt: "2026-06-20T23:59:00",
-  },
-  {
-    id: "u1v2w3x4-0000-0000-0000-666666666666",
-    recipient: "Maya Putri",
-    message: "Instruksi lengkap ada di amplop kuning di kotak pos.",
-    status: "pending",
-    lat: -0.5022,
-    lng: 117.1536,
-    radiusMeters: 75,
-    selfDestruct: true,
-    createdAt: "2026-06-08T16:45:00",
-    expiresAt: "2026-06-25T16:00:00",
-  },
-];
 
 const STATUS_CONFIG: Record<MessageStatus, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-700 border-yellow-200" },
@@ -128,6 +53,9 @@ function getDropLink(id: string) {
 }
 
 export default function MessagesPage() {
+  const [allMessages, setAllMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | MessageStatus>("all");
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
@@ -135,8 +63,24 @@ export default function MessagesPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [modalLinkCopied, setModalLinkCopied] = useState(false);
 
-  const filtered = DUMMY_MESSAGES.filter((msg) => {
-    const matchSearch = msg.recipient.toLowerCase().includes(searchQuery.toLowerCase());
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/messages");
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "Gagal memuat pesan");
+        setAllMessages(data.messages);
+      } catch (err) {
+        setFetchError(err instanceof Error ? err.message : "Terjadi kesalahan");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const filtered = allMessages.filter((msg) => {
+    const matchSearch = msg.recipientName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchStatus = filterStatus === "all" || msg.status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -155,7 +99,7 @@ export default function MessagesPage() {
 
   async function handleModalCopy() {
     if (!selectedMessage) return;
-    await navigator.clipboard.writeText(getDropLink(selectedMessage.id));
+    await navigator.clipboard.writeText(getDropLink(selectedMessage._id));
     setModalLinkCopied(true);
     setTimeout(() => setModalLinkCopied(false), 2000);
   }
@@ -198,9 +142,15 @@ export default function MessagesPage() {
         </select>
       </div>
 
-      {/* TABLE / EMPTY STATE */}
+      {/* TABLE / STATES */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-red-600" />
+          </div>
+        ) : fetchError ? (
+          <div className="py-16 text-center text-sm text-red-500">{fetchError}</div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100">
               <SearchX className="h-7 w-7 text-gray-400" />
@@ -208,10 +158,7 @@ export default function MessagesPage() {
             <p className="mb-1 font-medium text-gray-700">Tidak ada pesan ditemukan</p>
             <p className="mb-5 text-sm text-gray-400">Coba ubah kata kunci atau filter status.</p>
             <button
-              onClick={() => {
-                setSearchQuery("");
-                setFilterStatus("all");
-              }}
+              onClick={() => { setSearchQuery(""); setFilterStatus("all"); }}
               className="rounded-lg border border-gray-200 px-5 py-2 text-sm font-medium text-gray-600 transition hover:border-red-300 hover:text-red-600"
             >
               Reset Filter
@@ -224,9 +171,8 @@ export default function MessagesPage() {
                 <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
                   <th className="w-10 px-4 py-3">No</th>
                   <th className="px-4 py-3">Penerima</th>
-                  <th className="px-4 py-3">Isi Pesan</th>
-                  <th className="px-4 py-3">Lokasi</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Lokasi</th>
                   <th className="px-4 py-3">Kadaluarsa</th>
                   <th className="px-4 py-3 text-center">S.D.</th>
                   <th className="px-4 py-3">Aksi</th>
@@ -234,26 +180,21 @@ export default function MessagesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((msg, idx) => {
-                  const status = STATUS_CONFIG[msg.status];
-                  const isCopied = copiedId === msg.id;
+                  const status = STATUS_CONFIG[msg.status] ?? STATUS_CONFIG.pending;
+                  const isCopied = copiedId === msg._id;
                   return (
-                    <tr key={msg.id} className="transition hover:bg-gray-50">
+                    <tr key={msg._id} className="transition hover:bg-gray-50">
                       <td className="px-4 py-3.5 text-gray-400">{idx + 1}</td>
-                      <td className="px-4 py-3.5 font-medium text-gray-800">{msg.recipient}</td>
-                      <td className="max-w-[180px] px-4 py-3.5 text-gray-400">
-                        {truncate(msg.message, 40)}
+                      <td className="px-4 py-3.5 font-medium text-gray-800">{msg.recipientName}</td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${status.className}`}>
+                          {status.label}
+                        </span>
                       </td>
                       <td className="px-4 py-3.5">
                         <code className="font-mono text-xs text-gray-500">
-                          {msg.lat.toFixed(4)}, {msg.lng.toFixed(4)}
+                          {msg.latitude.toFixed(4)}, {msg.longitude.toFixed(4)}
                         </code>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${status.className}`}
-                        >
-                          {status.label}
-                        </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-gray-500">
                         {formatDate(msg.expiresAt)}
@@ -268,7 +209,7 @@ export default function MessagesPage() {
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleCopyLink(msg.id)}
+                            onClick={() => handleCopyLink(msg._id)}
                             className="flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-red-300 hover:text-red-600"
                           >
                             {isCopied ? (
@@ -303,17 +244,14 @@ export default function MessagesPage() {
               <DialogHeader>
                 <DialogTitle>Detail Pesan</DialogTitle>
               </DialogHeader>
-
               <div className="space-y-4 py-2">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                  <InfoRow label="Penerima" value={selectedMessage.recipient} />
+                  <InfoRow label="Penerima" value={selectedMessage.recipientName} />
                   <InfoRow
                     label="Status"
                     value={
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_CONFIG[selectedMessage.status].className}`}
-                      >
-                        {STATUS_CONFIG[selectedMessage.status].label}
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_CONFIG[selectedMessage.status]?.className}`}>
+                        {STATUS_CONFIG[selectedMessage.status]?.label}
                       </span>
                     }
                   />
@@ -323,11 +261,11 @@ export default function MessagesPage() {
                     label="Koordinat"
                     value={
                       <code className="font-mono text-xs">
-                        {selectedMessage.lat.toFixed(6)}, {selectedMessage.lng.toFixed(6)}
+                        {selectedMessage.latitude.toFixed(6)}, {selectedMessage.longitude.toFixed(6)}
                       </code>
                     }
                   />
-                  <InfoRow label="Radius" value={`${selectedMessage.radiusMeters} meter`} />
+                  <InfoRow label="Radius" value={`${selectedMessage.radius} meter`} />
                   <InfoRow
                     label="Self Destruct"
                     value={
@@ -339,17 +277,19 @@ export default function MessagesPage() {
                     }
                   />
                 </div>
-
                 <div>
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Isi Pesan
+                    Status Enkripsi
                   </p>
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                    <p className="font-mono text-sm text-gray-700">{selectedMessage.message}</p>
+                    <p className="font-mono text-sm text-gray-500">
+                      {selectedMessage.status === "destroyed"
+                        ? "⚠ Pesan telah dihapus permanen."
+                        : "🔒 Isi pesan terenkripsi — hanya bisa dibuka di lokasi yang ditentukan."}
+                    </p>
                   </div>
                 </div>
               </div>
-
               <DialogFooter>
                 <button
                   onClick={() => setIsModalOpen(false)}
@@ -361,11 +301,7 @@ export default function MessagesPage() {
                   onClick={handleModalCopy}
                   className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
                 >
-                  {modalLinkCopied ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  {modalLinkCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   {modalLinkCopied ? "Tersalin!" : "Salin Link Drop"}
                 </button>
               </DialogFooter>
